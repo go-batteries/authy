@@ -15,6 +15,7 @@ type Service interface {
 	Revoke(ctx context.Context, accessToken string) (bool, error)
 	Authenticate(ctx context.Context, accessToken string) (bool, error)
 	ReAuthenticate(ctx context.Context, accessToken, refreshToken string) (Token, error)
+	Expire(ctx context.Context, accessToken string) error
 }
 
 type TokenService struct {
@@ -47,8 +48,26 @@ func (s TokenService) Create(ctx context.Context, clientID string) (Token, error
 }
 
 func (s TokenService) Revoke(ctx context.Context, accessToken string) (bool, error) {
-	err := s.repo.Block(ctx, accessToken)
-	return err == nil, err
+	blocker := BlockedUpdater{}
+	if err := s.repo.Update(ctx, blocker, accessToken); err != nil {
+		logrus.WithContext(ctx).WithError(err).Error("failed to block token in db")
+		return false, err
+	}
+
+	logrus.WithContext(ctx).Infoln("access token revoked")
+	return true, nil
+}
+
+func (s TokenService) Expire(ctx context.Context, accessToken string) error {
+	butcher := ExpireUpdate{}
+
+	if err := s.repo.Update(ctx, butcher, accessToken); err != nil {
+		logrus.WithContext(ctx).WithError(err).Error("failed to expire token in db")
+		return err
+	}
+
+	logrus.WithContext(ctx).Infoln("access token expired")
+	return nil
 }
 
 var (
@@ -78,16 +97,24 @@ func (s TokenService) ReAuthenticate(ctx context.Context, accessToken, refreshTo
 	token, err := s.repo.Find(ctx, FindBy{
 		"access_token":  accessToken,
 		"refresh_token": refreshToken,
-	}, true)
+	}, false)
 	if err != nil {
 		logrus.WithContext(ctx).WithError(err).Error("failed to find token refresh token")
 		return token, err
+	}
+
+	if token.Blocked {
+		logrus.WithContext(ctx).Infoln("token is blocked")
+		return token, errorrs.UnAuthorized(ErrAccessBlocked, errorrs.CodeAccessBlocked)
 	}
 
 	if token.HasRefreshExpired() {
 		logrus.WithContext(ctx).Error("refresh token has expired")
 		return token, errorrs.UnAuthorized(ErrRefreshTokenExpired, errorrs.CodeRefreshTokenExpired)
 	}
+
+	// todo: forcefully expire the token in go channel
+	// need to build event emitter pattern
 
 	newToken := BuildToken(token.ClientID,
 		WithBlocked(token.Blocked),

@@ -2,6 +2,7 @@ package tests
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	"github.com/go-batteries/authy"
@@ -91,10 +92,10 @@ func (s *TokenAuthenticationSuite) TestReAuthenticate() {
 	require.NoError(s.T(), err, "should not have failed to authenticate")
 	require.True(s.T(), valid)
 
-	success, err := s.svc.Revoke(ctx, token.AccessToken)
-	require.NoError(s.T(), err, "should not have failed to revoke token")
-	require.True(s.T(), success)
+	err = s.svc.Expire(ctx, token.AccessToken)
+	require.NoError(s.T(), err, "should not have failed to expire token")
 
+	fmt.Println("===== ", token)
 	newToken, err := s.svc.ReAuthenticate(ctx, token.AccessToken, token.RefreshToken)
 	require.NoError(s.T(), err, "should not have failed to reauthenticate")
 

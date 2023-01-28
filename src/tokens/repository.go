@@ -83,20 +83,11 @@ func (t TokensRepository) Find(ctx context.Context, clauses FindBy, checkExpiry 
 	return newToken, nil
 }
 
-type BlockedUpdater struct {
-	Blocked bool `db:"blocked"`
-}
-
-func (t TokensRepository) Block(ctx context.Context, accessToken string) error {
-	sql, args, err := t.qb.Update("tokens").
-		Set(BlockedUpdater{Blocked: true}).
-		Where(goqu.Ex{
-			"access_token": accessToken,
-		}).ToSQL()
-
+func (t TokensRepository) Update(ctx context.Context, builder UpdateQueryBuilder, bargs ...interface{}) error {
+	sql, args, err := builder.Build(ctx, t.qb, bargs...)
 	if err != nil {
 		logrus.WithContext(ctx).WithError(err).Error("failed to build query for update")
-		return errorrs.InternalError(err, errorrs.CodeDatabaseQueryBuilderFailed)
+		return err
 	}
 
 	_, err = t.db.ExecContext(ctx, sql, args...)
