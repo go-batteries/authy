@@ -1,10 +1,13 @@
 package authy
 
 import (
+	"context"
 	"errors"
 	"strings"
+	"sync"
 	"time"
 
+	"github.com/go-batteries/authy/database"
 	"github.com/go-batteries/authy/pkg/config"
 	"github.com/go-batteries/authy/src/tokens"
 	"github.com/sirupsen/logrus"
@@ -17,12 +20,15 @@ import (
 	_ "github.com/mattn/go-sqlite3"
 )
 
-func NewAuthorizer(cfg config.Config) (tokens.Service, error) {
-	dialect := strings.ToLower(cfg.Dialect)
+var voo sync.Once
 
+func NewAuthorizer(cfg config.Config) (tokens.Service, error) {
 	logrus.SetFormatter(&logrus.JSONFormatter{})
 
-	var svc tokens.TokenService
+	var (
+		dialect = strings.ToLower(cfg.Dialect)
+		svc     tokens.TokenService
+	)
 
 	if !strings.Contains("postgres,sqlite3", dialect) {
 		return svc, errors.New("unsupported dialect")
@@ -37,6 +43,14 @@ func NewAuthorizer(cfg config.Config) (tokens.Service, error) {
 
 	db.SetMaxOpenConns(30)
 	db.SetMaxIdleConns(10)
+
+	var ctx = context.Background()
+
+	voo.Do(func() {
+		if err := database.RunMigrations(ctx, db.DB); err != nil {
+			panic(err)
+		}
+	})
 
 	expiryConfig := tokens.ExpiryConfig{
 		AccessExpiresIn:  time.Duration(cfg.TokenExpiryInSec),
